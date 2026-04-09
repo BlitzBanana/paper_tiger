@@ -54,6 +54,8 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Plugs.Idempotency
   alias PaperTiger.Plugs.Sandbox
   alias PaperTiger.Plugs.UnflattenParams
+  alias PaperTiger.Resources.Account
+  alias PaperTiger.Resources.AccountLink
   alias PaperTiger.Resources.ApplicationFee
   alias PaperTiger.Resources.BalanceTransaction
   alias PaperTiger.Resources.BankAccount
@@ -189,6 +191,16 @@ defmodule PaperTiger.Router do
   end
 
   ## Resource Routes
+
+  # Stripe Connect resources. Account create/retrieve/update is all that's
+  # needed today — no list/delete. See `PaperTiger.Resources.Account`.
+  stripe_resource("accounts", Account, only: [:create, :retrieve, :update])
+
+  # AccountLink is stateless (no store), so it gets a direct POST route
+  # rather than going through the stripe_resource macro.
+  post "/v1/account_links" do
+    AccountLink.create(conn)
+  end
 
   # Core resources (Phase 1)
   stripe_resource("customers", Customer, [])

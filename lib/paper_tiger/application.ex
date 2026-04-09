@@ -5,6 +5,7 @@ defmodule PaperTiger.Application do
   use Application
 
   alias PaperTiger.Bootstrap
+  alias PaperTiger.Store.Accounts
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
@@ -64,6 +65,7 @@ defmodule PaperTiger.Application do
         PaperTiger.WebhookDelivery,
 
         # Resource stores
+        Accounts,
         Customers,
         Subscriptions,
         Products,
