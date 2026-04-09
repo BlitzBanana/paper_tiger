@@ -30,6 +30,7 @@ defmodule PaperTiger.Test do
   with each other's data.
   """
 
+  alias PaperTiger.Store.Accounts
   alias PaperTiger.Store.ApplicationFees
   alias PaperTiger.Store.BalanceTransactions
   alias PaperTiger.Store.BankAccounts
@@ -64,6 +65,8 @@ defmodule PaperTiger.Test do
   @namespace_key :paper_tiger_namespace
   @namespace_header "x-paper-tiger-namespace"
   @shared_namespace_key :paper_tiger_shared_namespace
+  @connect_account_key :paper_tiger_connect_account
+  @shared_connect_account_key :paper_tiger_shared_connect_account
   @default_api_key "sk_test_mock"
 
   @doc """
@@ -166,10 +169,17 @@ defmodule PaperTiger.Test do
     # This allows stripity_stripe calls from spawned processes to use the same sandbox
     Application.put_env(:paper_tiger, @shared_namespace_key, namespace)
 
+    # Ensure no stale Connect account state leaks into a fresh test. Tests
+    # that need a Connect context must opt in via `with_connect_account/2`
+    # or by passing `connect_account:` to stripity_stripe calls.
+    Process.delete(@connect_account_key)
+    Application.delete_env(:paper_tiger, @shared_connect_account_key)
+
     ExUnit.Callbacks.on_exit(fn ->
       cleanup_namespace(namespace)
       # Clear the shared namespace on test exit
       Application.delete_env(:paper_tiger, @shared_namespace_key)
+      Application.delete_env(:paper_tiger, @shared_connect_account_key)
     end)
 
     :ok
@@ -187,6 +197,75 @@ defmodule PaperTiger.Test do
   end
 
   @doc """
+  Returns the current Stripe Connect account ID, or `nil` if not in a Connect context.
+
+  When a Connect account is set (either via the `Stripe-Account` HTTP header
+  handled by `PaperTiger.Plugs.Sandbox`, or explicitly via
+  `put_connect_account/1` / `with_connect_account/2` in test setup code),
+  all store operations scope data to that account in addition to the
+  namespace. This mirrors Stripe's own per-account isolation for Direct
+  Charges: a PaymentIntent created on `acct_A` cannot be retrieved with
+  `Stripe-Account: acct_B`.
+
+  Accounts themselves (created via `POST /v1/accounts`) live at the platform
+  level and are NOT per-account isolated — they are addressable regardless
+  of the current Connect context.
+  """
+  @spec current_connect_account() :: String.t() | nil
+  def current_connect_account do
+    case Process.get(@connect_account_key) do
+      nil -> Application.get_env(:paper_tiger, @shared_connect_account_key)
+      account_id -> account_id
+    end
+  end
+
+  @doc """
+  Sets the current Stripe Connect account for this process.
+
+  Normally called by `PaperTiger.Plugs.Sandbox` after extracting the
+  `Stripe-Account` HTTP header. Tests can also call this directly when
+  manipulating PaperTiger stores outside of a live HTTP request.
+
+  Pass `nil` to clear the account and return to platform-level context.
+  """
+  @spec put_connect_account(String.t() | nil) :: :ok
+  def put_connect_account(nil) do
+    Process.delete(@connect_account_key)
+    :ok
+  end
+
+  def put_connect_account(account_id) when is_binary(account_id) do
+    Process.put(@connect_account_key, account_id)
+    :ok
+  end
+
+  @doc """
+  Runs the given function with the current Connect account set to `account_id`.
+
+  Restores the previous account on exit (including exceptions). Useful in
+  tests that seed data directly into PaperTiger stores for a specific
+  connected account:
+
+      PaperTiger.Test.with_connect_account("acct_organizer_123", fn ->
+        PaperTiger.Store.Customers.insert(%{id: "cus_abc", ...})
+      end)
+  """
+  @spec with_connect_account(String.t(), (-> result)) :: result when result: var
+  def with_connect_account(account_id, fun) when is_binary(account_id) and is_function(fun, 0) do
+    previous = Process.get(@connect_account_key)
+    Process.put(@connect_account_key, account_id)
+
+    try do
+      fun.()
+    after
+      case previous do
+        nil -> Process.delete(@connect_account_key)
+        value -> Process.put(@connect_account_key, value)
+      end
+    end
+  end
+
+  @doc """
   Cleans up all data for the given namespace.
 
   Called automatically on test exit when using `checkout_paper_tiger/1`.
@@ -194,6 +273,7 @@ defmodule PaperTiger.Test do
   @spec cleanup_namespace(pid() | :global) :: :ok
   def cleanup_namespace(namespace) do
     stores = [
+      Accounts,
       ApplicationFees,
       BalanceTransactions,
       BankAccounts,

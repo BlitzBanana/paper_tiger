@@ -43,7 +43,8 @@ defmodule PaperTiger.Store.PaymentMethods do
   @spec get(String.t()) :: {:ok, map()} | {:error, :not_found}
   def get(id) when is_binary(id) do
     namespace = PaperTiger.Test.current_namespace()
-    key = {namespace, id}
+    account = PaperTiger.Test.current_connect_account()
+    key = {namespace, account, id}
 
     case :ets.lookup(@table, key) do
       [{^key, item}] ->
@@ -51,6 +52,8 @@ defmodule PaperTiger.Store.PaymentMethods do
 
       [] ->
         # Fall back to global namespace for pre-defined test tokens
+        # (pm_card_visa, pm_card_mastercard, etc.). Global test tokens are
+        # always platform-level, so the Connect dimension is nil.
         get_from_global_namespace(namespace, id)
     end
   end
@@ -58,7 +61,7 @@ defmodule PaperTiger.Store.PaymentMethods do
   defp get_from_global_namespace(:global, _id), do: {:error, :not_found}
 
   defp get_from_global_namespace(_namespace, id) do
-    global_key = {:global, id}
+    global_key = {:global, nil, id}
 
     case :ets.lookup(@table, global_key) do
       [{^global_key, item}] -> {:ok, item}
@@ -77,8 +80,9 @@ defmodule PaperTiger.Store.PaymentMethods do
 
   def find_by_customer(customer_id) when is_binary(customer_id) do
     namespace = PaperTiger.Test.current_namespace()
+    account = PaperTiger.Test.current_connect_account()
 
-    :ets.match_object(@table, {{namespace, :_}, %{customer: customer_id}})
+    :ets.match_object(@table, {{namespace, account, :_}, %{customer: customer_id}})
     |> Enum.map(fn {_key, payment_method} -> payment_method end)
   end
 end

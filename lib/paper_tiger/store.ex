@@ -32,11 +32,22 @@ defmodule PaperTiger.Store do
 
   ## Namespacing
 
-  All data is stored with a composite key `{namespace, id}` where namespace
-  is either `:global` (default) or the PID of the test process when using
-  `PaperTiger.Test.checkout_paper_tiger/1`.
+  All data is stored with a composite key `{namespace, connect_account, id}`
+  where:
 
-  This allows concurrent tests to have isolated data without interference.
+  - `namespace` is either `:global` (default) or the PID of the test process
+    when using `PaperTiger.Test.checkout_paper_tiger/1`. This isolates
+    concurrent tests from one another.
+  - `connect_account` is either `nil` (platform-level, default) or a Stripe
+    Connect account ID like `"acct_123"` when the request carried a
+    `Stripe-Account` header (set by the `PaperTiger.Plugs.Sandbox` plug) or
+    when the caller is inside `PaperTiger.Test.with_connect_account/2`. This
+    isolates Direct Charges per connected account within a single test,
+    mirroring Stripe's own per-account isolation.
+
+  A resource retrieved with one connect account context cannot be found
+  with another, matching the real Stripe behavior where a PaymentIntent on
+  `acct_A` returns "not found" under `Stripe-Account: acct_B`.
   """
 
   defmacro __using__(opts) do
@@ -91,6 +102,12 @@ defmodule PaperTiger.Store do
       defp current_namespace do
         PaperTiger.Test.current_namespace()
       end
+
+      # Returns the current Stripe Connect account for data isolation, or nil
+      # when operating at the platform level.
+      defp current_connect_account do
+        PaperTiger.Test.current_connect_account()
+      end
     end
   end
 
@@ -100,12 +117,13 @@ defmodule PaperTiger.Store do
       Retrieves a #{unquote(resource)} by ID.
 
       **Direct ETS access** - does not go through GenServer.
-      Data is scoped to the current test namespace.
+      Data is scoped to the current test namespace and Connect account.
       """
       @spec get(String.t()) :: {:ok, map()} | {:error, :not_found}
       def get(id) when is_binary(id) do
         namespace = current_namespace()
-        key = {namespace, id}
+        account = current_connect_account()
+        key = {namespace, account, id}
 
         case :ets.lookup(unquote(table), key) do
           [{^key, item}] -> {:ok, item}
@@ -117,7 +135,7 @@ defmodule PaperTiger.Store do
       Lists all #{unquote(plural)} with optional pagination.
 
       **Direct ETS access** - does not go through GenServer.
-      Data is scoped to the current test namespace.
+      Data is scoped to the current test namespace and Connect account.
 
       ## Options
 
@@ -129,23 +147,25 @@ defmodule PaperTiger.Store do
       def list(opts \\ %{}) do
         opts = if is_list(opts), do: Map.new(opts), else: opts
         namespace = current_namespace()
+        account = current_connect_account()
 
-        # Match only items in current namespace
-        :ets.match_object(unquote(table), {{namespace, :_}, :_})
+        # Match only items in current namespace + Connect account
+        :ets.match_object(unquote(table), {{namespace, account, :_}, :_})
         |> Enum.map(fn {_key, item} -> item end)
         |> PaperTiger.List.paginate(Map.put(opts, :url, unquote(url_path)))
       end
 
       @doc """
-      Counts total #{unquote(plural)} in current namespace.
+      Counts total #{unquote(plural)} in current namespace + Connect account.
 
       **Direct ETS access** - does not go through GenServer.
       """
       @spec count() :: non_neg_integer()
       def count do
         namespace = current_namespace()
+        account = current_connect_account()
 
-        :ets.match_object(unquote(table), {{namespace, :_}, :_})
+        :ets.match_object(unquote(table), {{namespace, account, :_}, :_})
         |> length()
       end
     end
@@ -157,36 +177,39 @@ defmodule PaperTiger.Store do
       Inserts a #{unquote(resource)} into the store.
 
       **Serialized write** - goes through GenServer to prevent race conditions.
-      Data is scoped to the current test namespace.
+      Data is scoped to the current test namespace and Connect account.
       """
       @spec insert(map()) :: {:ok, map()}
       def insert(item) when is_map(item) do
         namespace = current_namespace()
-        GenServer.call(__MODULE__, {:insert, namespace, item})
+        account = current_connect_account()
+        GenServer.call(__MODULE__, {:insert, namespace, account, item})
       end
 
       @doc """
       Updates a #{unquote(resource)} in the store.
 
       **Serialized write** - goes through GenServer.
-      Data is scoped to the current test namespace.
+      Data is scoped to the current test namespace and Connect account.
       """
       @spec update(map()) :: {:ok, map()}
       def update(item) when is_map(item) do
         namespace = current_namespace()
-        GenServer.call(__MODULE__, {:update, namespace, item})
+        account = current_connect_account()
+        GenServer.call(__MODULE__, {:update, namespace, account, item})
       end
 
       @doc """
       Deletes a #{unquote(resource)} from the store.
 
       **Serialized write** - goes through GenServer.
-      Data is scoped to the current test namespace.
+      Data is scoped to the current test namespace and Connect account.
       """
       @spec delete(String.t()) :: :ok
       def delete(id) when is_binary(id) do
         namespace = current_namespace()
-        GenServer.call(__MODULE__, {:delete, namespace, id})
+        account = current_connect_account()
+        GenServer.call(__MODULE__, {:delete, namespace, account, id})
       end
 
       @doc """
@@ -210,6 +233,9 @@ defmodule PaperTiger.Store do
       @doc """
       Clears all #{unquote(plural)} for a specific namespace.
 
+      Deletes data across every Connect account under the namespace — a
+      test-scoped wipe, not a per-account one.
+
       Used by `PaperTiger.Test` to clean up after each test.
       """
       @spec clear_namespace(pid() | :global) :: :ok
@@ -218,13 +244,13 @@ defmodule PaperTiger.Store do
       end
 
       @doc """
-      Returns all items in a specific namespace.
+      Returns all items in a specific namespace, across every Connect account.
 
       Useful for debugging test isolation.
       """
       @spec list_namespace(pid() | :global) :: [map()]
       def list_namespace(namespace) do
-        :ets.match_object(unquote(table), {{namespace, :_}, :_})
+        :ets.match_object(unquote(table), {{namespace, :_, :_}, :_})
         |> Enum.map(fn {_key, item} -> item end)
       end
     end
@@ -247,20 +273,20 @@ defmodule PaperTiger.Store do
       end
 
       @impl true
-      def handle_call({:insert, namespace, item}, _from, state) do
-        key = {namespace, item.id}
+      def handle_call({:insert, namespace, account, item}, _from, state) do
+        key = {namespace, account, item.id}
         :ets.insert(unquote(table), {key, item})
         {:reply, {:ok, item}, state}
       end
 
-      def handle_call({:update, namespace, item}, _from, state) do
-        key = {namespace, item.id}
+      def handle_call({:update, namespace, account, item}, _from, state) do
+        key = {namespace, account, item.id}
         :ets.insert(unquote(table), {key, item})
         {:reply, {:ok, item}, state}
       end
 
-      def handle_call({:delete, namespace, id}, _from, state) do
-        key = {namespace, id}
+      def handle_call({:delete, namespace, account, id}, _from, state) do
+        key = {namespace, account, id}
         :ets.delete(unquote(table), key)
         {:reply, :ok, state}
       end
@@ -271,8 +297,8 @@ defmodule PaperTiger.Store do
       end
 
       def handle_call({:clear_namespace, namespace}, _from, state) do
-        # Delete all entries matching the namespace
-        :ets.match_delete(unquote(table), {{namespace, :_}, :_})
+        # Delete all entries matching the namespace, across every Connect account.
+        :ets.match_delete(unquote(table), {{namespace, :_, :_}, :_})
         {:reply, :ok, state}
       end
 
