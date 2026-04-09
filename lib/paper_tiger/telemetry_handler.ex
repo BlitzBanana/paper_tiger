@@ -74,7 +74,11 @@ defmodule PaperTiger.TelemetryHandler do
       [:paper_tiger, :payment_method, :detached],
       # Checkout Session events
       [:paper_tiger, :checkout, :session, :completed],
-      [:paper_tiger, :checkout, :session, :expired]
+      [:paper_tiger, :checkout, :session, :expired],
+      # Connect Account events. `account_link.created` intentionally
+      # omitted — real Stripe does not fire a webhook for AccountLink.
+      [:paper_tiger, :account, :created],
+      [:paper_tiger, :account, :updated]
     ]
 
     :telemetry.attach_many(
@@ -138,8 +142,17 @@ defmodule PaperTiger.TelemetryHandler do
         prev -> %{object: object, previous_attributes: prev}
       end
 
+    # When the originating API call carried a Stripe-Account header (i.e.
+    # it's a Direct Charges request scoped to a connected account), the
+    # resulting event must carry a top-level `account` field identifying
+    # that connected account. This mirrors real Stripe's Connect webhook
+    # payload shape and is how the application under test distinguishes
+    # platform-level events from connected-account events.
+    event_account = PaperTiger.Test.current_connect_account()
+
     event = %{
       api_version: "2023-10-16",
+      account: event_account,
       created: PaperTiger.now(),
       data: data,
       delivery_attempts: [],

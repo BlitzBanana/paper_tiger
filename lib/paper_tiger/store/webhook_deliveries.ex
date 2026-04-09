@@ -25,6 +25,12 @@ defmodule PaperTiger.Store.WebhookDeliveries do
       event_id: event.id,
       event_type: event.type,
       event_data: event.data,
+      # `account` is set when the event originated from a Direct Charges
+      # request scoped to a connected Stripe account. nil for platform-level
+      # events. Mirrors the top-level `account` field on real Stripe Connect
+      # webhook payloads so tests can assert routing without re-fetching
+      # the full event.
+      account: Map.get(event, :account),
       webhook_id: webhook[:id] || webhook["id"],
       webhook_url: webhook[:url] || webhook["url"],
       # Use `created` to match Stripe's convention (paginate expects this field)
