@@ -24,7 +24,7 @@ defmodule PaperTiger.Plugs.RequestLogger do
     end)
   end
 
-  defp should_log?(%{request_path: request_path}) when is_binary(request_path) do
+  defp should_log?(%{request_path: request_path}) do
     should_log_path?(request_path) and sandbox_namespace?()
   end
 
@@ -33,8 +33,6 @@ defmodule PaperTiger.Plugs.RequestLogger do
   defp should_log_path?(request_path) when is_binary(request_path) do
     not String.starts_with?(request_path, "/_test")
   end
-
-  defp should_log_path?(_), do: false
 
   defp sandbox_namespace? do
     PaperTiger.Test.current_namespace() != :global
