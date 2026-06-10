@@ -49,6 +49,7 @@ defmodule PaperTiger.Idempotency do
 
   Returns:
   - `{:cached, response}` - Key exists, return cached response
+  - `{:conflict, old_fingerprint}` - Key exists for different payload
   - `:new_request` - Key doesn't exist, proceed with request (and reserves the key atomically)
   - `:in_progress` - Another request with this key is currently processing
 
@@ -58,8 +59,9 @@ defmodule PaperTiger.Idempotency do
   arrive simultaneously with the same key, only one will get `:new_request`,
   the other will get `:in_progress` and should retry or wait.
   """
-  @spec check(String.t()) :: {:cached, map()} | :new_request | :in_progress
-  def check(idempotency_key) when is_binary(idempotency_key) do
+  @spec check(String.t(), binary() | nil) ::
+          {:cached, map()} | :new_request | :in_progress | {:conflict, binary()}
+  def check(idempotency_key, request_fingerprint \\ nil) when is_binary(idempotency_key) do
     namespace = PaperTiger.Connect.storage_namespace()
     key = {namespace, idempotency_key}
     now = PaperTiger.Clock.now()
@@ -69,19 +71,24 @@ defmodule PaperTiger.Idempotency do
     :ets.select_delete(@table, [{{key, :_, :"$1"}, [{:<, :"$1", now}], [true]}])
 
     case :ets.lookup(@table, key) do
-      [{^key, :in_progress, _expires_at}] ->
+      [{^key, {:in_progress, _}, _expires_at}] ->
         Logger.debug("Idempotency key in progress: #{idempotency_key}")
         :in_progress
 
-      [{^key, response, _expires_at}] ->
+      [{^key, {:cached, stored_fingerprint, response}, _expires_at}] ->
         Logger.debug("Idempotency cache hit: #{idempotency_key}")
-        {:cached, response}
+
+        if is_nil(request_fingerprint) or request_fingerprint == stored_fingerprint do
+          {:cached, response}
+        else
+          {:conflict, stored_fingerprint}
+        end
 
       [] ->
         # Atomically reserve this key with in-progress marker
         expires_at = now + @ttl_seconds
 
-        case :ets.insert_new(@table, {key, :in_progress, expires_at}) do
+        case :ets.insert_new(@table, {key, {:in_progress, request_fingerprint}, expires_at}) do
           true ->
             Logger.debug("Idempotency: new request with key=#{idempotency_key}")
             :new_request
@@ -89,7 +96,7 @@ defmodule PaperTiger.Idempotency do
           false ->
             # Another process beat us to it, check again
             Logger.debug("Idempotency: race detected for key=#{idempotency_key}, rechecking")
-            check(idempotency_key)
+            check(idempotency_key, request_fingerprint)
         end
     end
   end
@@ -99,14 +106,32 @@ defmodule PaperTiger.Idempotency do
 
   The response will be cached for 24 hours.
   """
-  @spec store(String.t(), map()) :: :ok
-  def store(idempotency_key, response) when is_binary(idempotency_key) do
+  @spec store(String.t(), map(), binary() | nil) :: :ok
+  def store(idempotency_key, response, request_fingerprint \\ nil) when is_binary(idempotency_key) do
     namespace = PaperTiger.Connect.storage_namespace()
     key = {namespace, idempotency_key}
     expires_at = PaperTiger.Clock.now() + @ttl_seconds
-    :ets.insert(@table, {key, response, expires_at})
+    :ets.insert(@table, {key, {:cached, request_fingerprint, response}, expires_at})
     Logger.debug("Idempotency stored: #{idempotency_key} (expires: #{expires_at})")
     :ok
+  end
+
+  @doc """
+  Builds a deterministic fingerprint for idempotent request matching.
+  """
+  @spec request_fingerprint(Plug.Conn.t()) :: binary()
+  def request_fingerprint(conn) do
+    request_path = conn.request_path || "/" <> Enum.join(conn.path_info, "/")
+
+    payload = [
+      method: conn.method,
+      request_path: request_path,
+      query_params: normalize_fingerprint(conn.query_params),
+      params: normalize_fingerprint(conn.params)
+    ]
+
+    :crypto.hash(:sha256, :erlang.term_to_binary(payload, [:deterministic]))
+    |> Base.encode16(case: :lower)
   end
 
   @doc """
@@ -172,4 +197,20 @@ defmodule PaperTiger.Idempotency do
   defp schedule_cleanup do
     Process.send_after(self(), :cleanup, :timer.hours(1))
   end
+
+  defp normalize_fingerprint(value) when is_map(value) do
+    value
+    |> Map.to_list()
+    |> Enum.sort_by(fn {key, _} -> normalize_fingerprint_key(key) end)
+    |> Enum.map(fn {key, value} -> {normalize_fingerprint_key(key), normalize_fingerprint(value)} end)
+  end
+
+  defp normalize_fingerprint(value) when is_list(value) do
+    Enum.map(value, &normalize_fingerprint/1)
+  end
+
+  defp normalize_fingerprint(value), do: value
+
+  defp normalize_fingerprint_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp normalize_fingerprint_key(key), do: key
 end

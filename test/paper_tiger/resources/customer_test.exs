@@ -128,7 +128,7 @@ defmodule PaperTiger.Resources.CustomerTest do
 
       # Second request with same key
       conn2 =
-        request(:post, "/v1/customers", %{"email" => "different@example.com"}, [
+        request(:post, "/v1/customers", %{"email" => "idempotent@example.com"}, [
           {"idempotency-key", idempotency_key}
         ])
 
@@ -138,6 +138,27 @@ defmodule PaperTiger.Resources.CustomerTest do
       # Should return the same customer
       assert customer1["id"] == customer2["id"]
       assert customer1["email"] == customer2["email"]
+    end
+
+    test "returns idempotency conflict with different payload for same key" do
+      idempotency_key = "test_key_conflict_#{:rand.uniform(1_000_000)}"
+
+      conn1 =
+        request(:post, "/v1/customers", %{"email" => "idempotent@example.com"}, [
+          {"idempotency-key", idempotency_key}
+        ])
+
+      assert conn1.status == 200
+
+      conn2 =
+        request(:post, "/v1/customers", %{"email" => "other@example.com"}, [
+          {"idempotency-key", idempotency_key}
+        ])
+
+      assert conn2.status == 400
+      error = json_response(conn2)["error"]
+      assert error["type"] == "invalid_request_error"
+      assert error["code"] == "idempotency_key_in_use"
     end
 
     test "returns 401 when missing authorization header" do

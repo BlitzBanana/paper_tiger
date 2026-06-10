@@ -235,7 +235,7 @@ defmodule PaperTiger.Resources.ProductPriceTest do
       product1 = json_response(conn1)
 
       conn2 =
-        request(:post, "/v1/products", %{"name" => "Different Name"}, [
+        request(:post, "/v1/products", %{"name" => "Idempotent Product"}, [
           {"idempotency-key", idempotency_key}
         ])
 
@@ -866,15 +866,15 @@ defmodule PaperTiger.Resources.ProductPriceTest do
       assert conn1.status == 200
       price1 = json_response(conn1)
 
-      # Request with same key but different parameters should return same price
+      # Request with same idempotency key and same params should return same price
       conn2 =
         request(
           :post,
           "/v1/prices",
           %{
-            "currency" => "eur",
+            "currency" => "usd",
             "product" => product_id,
-            "unit_amount" => "3000"
+            "unit_amount" => "2000"
           },
           [{"idempotency-key", idempotency_key}]
         )

@@ -61,6 +61,7 @@ defmodule PaperTiger.Test do
   alias PaperTiger.Store.Products
   alias PaperTiger.Store.PromotionCodes
   alias PaperTiger.Store.Refunds
+  alias PaperTiger.Store.Requests
   alias PaperTiger.Store.Reviews
   alias PaperTiger.Store.SetupAttempts
   alias PaperTiger.Store.SetupIntents
@@ -251,6 +252,7 @@ defmodule PaperTiger.Test do
       TaxRates,
       Tokens,
       Topups,
+      Requests,
       Transfers,
       TransferReversals,
       WebhookDeliveries,
@@ -266,6 +268,101 @@ defmodule PaperTiger.Test do
 
     :ok
   end
+
+  # =============================================================================
+  # Inbound Request Helpers (for assertions)
+  # =============================================================================
+
+  @doc """
+  Returns all captured inbound requests for the current namespace.
+
+  Requests are recorded after routing/parsing and before the response is sent,
+  and include method/path/params and normalized headers.
+  """
+  @spec requests() :: [map()]
+  def requests do
+    Requests.list_all()
+  end
+
+  @doc """
+  Returns captured requests filtered by method/path/idempotency and params.
+  """
+  @spec requests(keyword()) :: [map()]
+  def requests(filters) when is_list(filters) do
+    Requests.filter(filters)
+  end
+
+  @doc """
+  Clears captured inbound requests for the current namespace.
+  """
+  @spec clear_requests() :: :ok
+  def clear_requests do
+    Requests.clear_namespace(current_namespace())
+  end
+
+  @doc """
+  Asserts a matching request exists.
+
+  This helper supports partial matching for body/params.
+  """
+  @spec assert_request(String.t() | atom(), String.t(), map() | keyword() | nil) ::
+          [map()]
+  def assert_request(method, path, params \\ %{}) do
+    filters = build_request_filters(method, path, params)
+
+    matches = requests(filters)
+
+    if matches == [] do
+      raise ExUnit.AssertionError,
+        message: """
+        Expected request matching:
+          method: #{inspect(method)}
+          path: #{path}
+          params: #{inspect(params)}
+
+        Captured requests: #{inspect(requests())}
+        """
+    end
+
+    matches
+  end
+
+  @doc """
+  Asserts no request matching the given method/path/params exists.
+  """
+  @spec refute_request(String.t() | atom(), String.t(), map() | keyword() | nil) :: :ok
+  def refute_request(method, path, params \\ %{}) do
+    filters = build_request_filters(method, path, params)
+
+    if requests(filters) != [] do
+      raise ExUnit.AssertionError,
+        message: """
+        Expected no matching request but found:
+          method: #{inspect(method)}
+          path: #{path}
+          params: #{inspect(params)}
+        """
+    end
+
+    :ok
+  end
+
+  defp build_request_filters(method, path, params) when is_map(params) do
+    [
+      method: method,
+      path: path,
+      params: params
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp build_request_filters(method, path, params) when is_list(params) do
+    params
+    |> Map.new()
+    |> then(&build_request_filters(method, path, &1))
+  end
+
+  defp build_request_filters(method, path, nil), do: [method: method, path: path]
 
   # =============================================================================
   # Webhook Delivery Helpers (for :collect mode)

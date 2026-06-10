@@ -80,6 +80,23 @@ defmodule PaperTiger.Error do
   end
 
   @doc """
+  Creates an idempotency conflict error (400).
+
+  Mirrors Stripe's `idempotency_key_in_use` behavior for the same key with
+  different request parameters.
+  """
+  @spec idempotency_key_in_use(String.t()) :: t()
+  def idempotency_key_in_use(idempotency_key) do
+    %__MODULE__{
+      code: "idempotency_key_in_use",
+      message: "The idempotency key #{idempotency_key} has already been used with a different request.",
+      param: "idempotency_key",
+      status: 400,
+      type: "invalid_request_error"
+    }
+  end
+
+  @doc """
   Creates a not found error (404).
 
   Returns the same error format as Stripe's API for missing resources.

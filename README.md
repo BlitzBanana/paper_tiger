@@ -318,6 +318,17 @@ end
 - `refute_webhook_delivered/1` - Asserts webhook was NOT delivered
 - `clear_delivered_webhooks/0` - Clears collected webhooks (useful between operations)
 
+### Inbound Request Assertions
+
+For tests that assert request details sent by your app, use these helpers:
+
+- `requests/0` - Returns all captured inbound requests for the current namespace
+- `requests/1` - Returns filtered requests (`method`, `path`, `idempotency_key`, `params`)
+- `assert_request/3` - Asserts at least one matching request was sent
+- `refute_request/3` - Asserts no matching request was sent
+- `clear_requests/0` - Clears captured requests in the current namespace
+- `PaperTiger.TestClient` calls are recorded automatically with method/path/query/body and idempotency key
+
 **When to use each mode:**
 
 | Mode            | Use Case                                           |

@@ -136,7 +136,7 @@ defmodule PaperTiger.Resource do
         :ok
 
       key ->
-        PaperTiger.Idempotency.store(key, response)
+        PaperTiger.Idempotency.store(key, response, PaperTiger.Idempotency.request_fingerprint(conn))
     end
   end
 

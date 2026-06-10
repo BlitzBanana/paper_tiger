@@ -55,7 +55,8 @@ defmodule PaperTiger.Plugs.Idempotency do
         conn
 
       [key | _] ->
-        check_idempotency(conn, key)
+        fingerprint = PaperTiger.Idempotency.request_fingerprint(conn)
+        check_idempotency(conn, key, fingerprint)
     end
   end
 
@@ -66,8 +67,8 @@ defmodule PaperTiger.Plugs.Idempotency do
 
   ## Private Functions
 
-  defp check_idempotency(conn, key) do
-    case PaperTiger.Idempotency.check(key) do
+  defp check_idempotency(conn, key, fingerprint) do
+    case PaperTiger.Idempotency.check(key, fingerprint) do
       :new_request ->
         Logger.debug("Idempotency: new request with key=#{key}")
         assign(conn, :idempotency_key, key)
@@ -76,10 +77,21 @@ defmodule PaperTiger.Plugs.Idempotency do
         Logger.debug("Idempotency: returning cached response for key=#{key}")
         send_cached_response(conn, response)
 
+      {:conflict, _stored_fingerprint} ->
+        Logger.debug("Idempotency: request conflict for key=#{key}")
+        send_conflict_response(conn, key)
+
       :in_progress ->
         Logger.debug("Idempotency: request in progress for key=#{key}")
         send_in_progress_response(conn, key)
     end
+  end
+
+  defp send_conflict_response(conn, key) do
+    error = PaperTiger.Error.to_json(PaperTiger.Error.idempotency_key_in_use(key))
+
+    conn
+    |> send_json_response(400, error)
   end
 
   defp send_cached_response(conn, response) do

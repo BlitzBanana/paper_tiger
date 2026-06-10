@@ -220,8 +220,7 @@ defmodule PaperTiger.Resources.InvoiceTest do
           :post,
           "/v1/invoices",
           %{
-            "customer" => customer_id,
-            "description" => "Different description"
+            "customer" => customer_id
           },
           [
             {"idempotency-key", idempotency_key}

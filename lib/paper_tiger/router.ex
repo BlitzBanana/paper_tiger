@@ -8,6 +8,7 @@ defmodule PaperTiger.Router do
 
   - `PaperTiger.Plugs.CORS` - Cross-origin requests
   - `PaperTiger.Plugs.Auth` - Verifies API key
+  - `PaperTiger.Plugs.RequestLogger` - Captures inbound request details for test assertions
   - `PaperTiger.Plugs.Idempotency` - Prevents duplicate requests
   - `PaperTiger.Plugs.UnflattenParams` - Converts card[number] to %{card: %{number: ...}}
 
@@ -53,6 +54,7 @@ defmodule PaperTiger.Router do
   alias PaperTiger.Plugs.CORS
   alias PaperTiger.Plugs.GetFormBody
   alias PaperTiger.Plugs.Idempotency
+  alias PaperTiger.Plugs.RequestLogger
   alias PaperTiger.Plugs.Sandbox
   alias PaperTiger.Plugs.UnflattenParams
   alias PaperTiger.Resources.Account
@@ -107,7 +109,6 @@ defmodule PaperTiger.Router do
   plug(CORS)
   plug(Sandbox)
   plug(ConnectContext)
-  plug(APIChaos)
   plug(GetFormBody)
 
   plug(Plug.Parsers,
@@ -115,6 +116,9 @@ defmodule PaperTiger.Router do
     pass: ["*/*"],
     json_decoder: Jason
   )
+
+  plug(RequestLogger)
+  plug(APIChaos)
 
   plug(Auth)
   plug(Idempotency)

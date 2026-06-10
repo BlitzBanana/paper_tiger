@@ -36,6 +36,7 @@ defmodule PaperTiger.Application do
   alias PaperTiger.Store.Products
   alias PaperTiger.Store.PromotionCodes
   alias PaperTiger.Store.Refunds
+  alias PaperTiger.Store.Requests
   alias PaperTiger.Store.Reviews
   alias PaperTiger.Store.SetupAttempts
   alias PaperTiger.Store.SetupIntents
@@ -100,6 +101,7 @@ defmodule PaperTiger.Application do
         SubscriptionItems,
         SubscriptionSchedules,
         InvoiceItems,
+        Requests,
         Plans,
         Coupons,
         PromotionCodes,
