@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-10
+
+### Added
+
+- Request spy for inbound calls now available in test mode.
+  `PaperTiger.Test.requests/0` and `PaperTiger.Test.requests/1` return captured requests
+  with method/path/params/headers/idempotency_key, plus `clear_requests/0`, `assert_request/3`,
+  and `refute_request/3` helpers for request assertions.
+- `PaperTiger.Store.Requests` stores per-namespace request entries for API calls, and
+  `PaperTiger.Plugs.RequestLogger` records each request at response-time.
+- `PaperTiger.Test` cleanup now clears per-namespace request logs with `cleanup_namespace/1`.
+
+### Fixed
+
+- Inbound request recording now respects sandbox-only operation and is bounded per namespace.
+  A hard cap (default `:request_log_max_entries`, 500) prevents unbounded request-log growth when
+  PaperTiger runs outside test namespaces.
+
+### Changed
+
+- Idempotency semantics now enforce payload matching for reused keys. Requests that reuse an
+  `Idempotency-Key` with a different payload now return Stripe-style `400` with code
+  `idempotency_key_in_use` rather than replaying a prior response.
+- The Elixir compatibility range now explicitly includes the released `1.20` line.
+
 ## [1.1.2] - 2026-05-23
 
 ### Fixed
