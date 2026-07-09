@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-07-08
+
+### Security
+
+- Hackney floor raised from `~> 1.17` to `~> 1.24` (constraint is now
+  `~> 1.24 or ~> 4.0`). hackney 1.24.0 is the least-vulnerable 1.x release — it includes
+  the SSRF fix (1.21.0) and the connection-pool fix (1.24.0) — but four advisories
+  affecting every release before 4.0.1 (CVE-2026-47071 high; CVE-2026-47075 and
+  CVE-2026-47076 medium; CVE-2026-47069 low) were never patched on the 1.x line. The 1.x
+  branch exists only so PaperTiger can coexist with dependency trees pinned to hackney 1.x
+  by other packages; prefer hackney 4.x whenever your tree allows it.
+
+### Fixed
+
+- Corrected the 1.2.1 release notes: the `PaperTiger.StripityStripeHackney` adapter does
+  not require hackney 4.x at runtime — it is a thin passthrough over `:hackney.request/5`
+  and works on either line, now verified in CI by a standalone smoke test that resolves
+  hackney 1.x and drives the adapter end-to-end (`integration/hackney_1x_smoke`). Note that
+  stripity_stripe 3.x itself still requires hackney 4.x, so combining it with
+  hackney-1.x-only packages remains unresolvable regardless of PaperTiger's constraint.
+
+### Changed
+
+- Development/CI lockfile refreshed (bandit 1.12, plug 1.20, req 0.6, hackney 4.5, and
+  dev/test tooling); published version requirements in `mix.exs` are unchanged. CI now
+  tests Elixir 1.18/1.19/1.20 at their latest patch releases.
+
+## [1.2.1] - 2026-06-10
+
+### Fixed
+
+- Hackney constraint loosened from `~> 4.0` to `~> 1.17 or ~> 4.0` so PaperTiger installs
+  alongside apps that depend on hackney 1.x (tzdata, sentry 11, swoosh, etc.). The optional
+  `PaperTiger.StripityStripeHackney` adapter still requires hackney 4.x at runtime when used.
+
 ## [1.2.0] - 2026-06-10
 
 ### Added
