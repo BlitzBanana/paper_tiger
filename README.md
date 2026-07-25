@@ -6,33 +6,47 @@
 
 A stateful mock Stripe server for testing.
 
-**In Elixir**, add the dependency. PaperTiger runs in-process on ETS, so there
-is no network hop, no container to manage, and each test gets its own isolated
-namespace:
-
-```elixir
-{:paper_tiger, "~> 1.0"}
-```
-
-**In any other language**, run the container and point your Stripe SDK at it.
-PaperTiger speaks HTTP, so the SDK does not know the difference:
+Run one container per test, per suite, or per CI job. Nothing is shared between
+them.
 
 ```bash
 docker run -p 12111:12111 ghcr.io/neilberkman/paper_tiger
 ```
 
+```python
+import stripe
+stripe.api_key = "sk_test_anything"   # any non-empty key works
+stripe.api_base = "http://localhost:12111"
+
+c = stripe.Customer.create(email="dev@example.com")
+stripe.Customer.retrieve(c.id)        # still there
+```
+
+Any Stripe SDK works by pointing its API base at the container.
+
+On Elixir, add `{:paper_tiger, "~> 1.0"}` instead and skip the container. It
+runs in the same BEAM, with a separate namespace per test.
+
 Full setup for both paths is under [Installation](#installation).
+
+## How this compares
+
+| | PaperTiger | [stripe-mock](https://github.com/stripe/stripe-mock) | Stripe sandboxes | [VCR](https://github.com/vcr/vcr) cassettes | [localstripe](https://github.com/adrienverge/localstripe) |
+| --- | --- | --- | --- | --- | --- |
+| **Stateful** | yes | no, 404s on resources it just created | yes | no, replays a recording | yes |
+| **Isolated environments** | unlimited | resets on process restart | [5 sandboxes per account](https://docs.stripe.com/sandboxes/dashboard/manage) | one cassette per scenario | one in-memory store |
+| **Time travel** | unlimited | no | [test clocks: 3 customers, 3 subscriptions, 10 quotes each](https://docs.stripe.com/billing/testing/test-clocks/api-advanced-usage) | no | no |
+| **Signed webhooks** | yes, delivered and retried | fires hardcoded payloads | yes | no | partial |
+| **Rate limits** | none | none | [25 ops/sec](https://docs.stripe.com/rate-limits) | none | none |
+| **Any Stripe SDK** | yes | yes | yes | per-language libraries | yes |
+| **Runs offline** | yes | yes | no | yes | yes |
+| **License** | MIT | MIT | proprietary | Hippocratic 2.1 | GPL-3.0 |
+
+Stripe's limits above link to Stripe's docs.
 
 ## Rationale
 
 Testing payment processing requires simulating complex Stripe workflows: subscription billing cycles, invoice finalization, webhook delivery, idempotency handling. Using real Stripe test accounts introduces external dependencies, network latency, rate limits, and non-deterministic test data. Stubbing individual Stripe API calls leads to brittle tests that break when Stripe's API evolves.
-
-Stripe's own testing surfaces have hard limits that a mock does not: an account
-can have [up to five sandboxes](https://docs.stripe.com/sandboxes/dashboard/manage),
-sandboxes are capped at [25 operations per second](https://docs.stripe.com/rate-limits),
-and a [test clock](https://docs.stripe.com/billing/testing/test-clocks/api-advanced-usage)
-holds at most three customers, three subscriptions, and ten quotes while
-advancing at most two billing intervals at a time.
 
 PaperTiger solves this by providing a complete, stateful implementation of the Stripe API. Tests execute in milliseconds instead of seconds, work offline, and produce deterministic results. The dual-mode contract testing system validates that PaperTiger's behavior matches production Stripe, catching API drift automatically.
 
@@ -96,9 +110,8 @@ definition can be repointed at PaperTiger without changing anything else.
 
 ### Node, via Testcontainers
 
-If your suite already uses [Testcontainers](https://node.testcontainers.org), the
-[`@neilberkman/papertiger-testcontainers`](clients/testcontainers-node) module starts and stops the container
-per test and gives you the clock controls directly:
+[`@neilberkman/papertiger-testcontainers`](clients/testcontainers-node) handles
+container lifecycle and exposes the clock controls:
 
 ```ts
 import { PaperTigerContainer } from "@neilberkman/papertiger-testcontainers";
@@ -114,9 +127,8 @@ definitions, and the HTTP control API.
 ## Standalone Server
 
 The container runs the same server the Elixir library runs in-process. Nothing
-is persisted to disk: each container is an isolated store that starts empty and
-disappears when the container does, which is what makes it safe to run one per
-CI job or per pull request.
+is written to disk. Each container starts empty and dies with the container, so
+one per CI job or per pull request costs nothing to clean up.
 
 ### Configuration
 
