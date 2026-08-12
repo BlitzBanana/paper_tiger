@@ -144,6 +144,7 @@ defmodule PaperTiger.Resources.SetupIntent do
   def confirm(conn, id) do
     with {:ok, setup_intent} <- SetupIntents.get(id),
          :ok <- validate_confirmable(setup_intent),
+         :ok <- PaperTiger.ReturnUrlHelper.validate(setup_intent, conn.params),
          {:ok, payment_method} <- resolve_payment_method(setup_intent, conn.params),
          {:ok, confirmed} <- confirm_with_payment_method(setup_intent, payment_method, conn.params) do
       confirmed
@@ -152,6 +153,15 @@ defmodule PaperTiger.Resources.SetupIntent do
     else
       {:error, :not_found} ->
         error_response(conn, PaperTiger.Error.not_found("setup_intent", id))
+
+      {:error, :return_url_required} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            PaperTiger.ReturnUrlHelper.error_message("SetupIntent"),
+            "return_url"
+          )
+        )
 
       {:error, :not_confirmable, status} ->
         error_response(
@@ -673,6 +683,7 @@ defmodule PaperTiger.Resources.SetupIntent do
       payment_method_configuration_details: nil,
       payment_method_options: Map.get(params, :payment_method_options),
       payment_method_types: Map.get(params, :payment_method_types, ["card"]),
+      return_url: Map.get(params, :return_url),
       single_use_mandate: nil,
       status: initial_status(params),
       usage: Map.get(params, :usage, "off_session")

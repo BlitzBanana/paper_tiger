@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Confirming a PaymentIntent or SetupIntent whose `automatic_payment_methods`
+  allows redirect-based payment methods (boleto, iDEAL, ...) now requires a
+  `return_url`, as real Stripe does. Previously the confirmation was accepted,
+  so an integration omitting the parameter stayed green against the mock and
+  only failed against the live API. The rejection names the resource and
+  returns `param: "return_url"`; `return_url` may be supplied at create or
+  confirm time. When `automatic_payment_methods` is absent entirely, Stripe
+  falls back to dashboard-configured payment methods PaperTiger does not model,
+  so that case is unchanged. Both intents now also store
+  `automatic_payment_methods` and `return_url` on the object as Stripe does.
 - `POST /_config/time/advance` now accepts form-encoded bodies
   (`seconds=86400`) in addition to JSON. Form encoding is what every Stripe SDK
   emits, so time travel was previously reachable only from hand-written JSON

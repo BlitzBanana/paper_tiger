@@ -178,6 +178,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
   def confirm(conn, id) do
     with {:ok, pi} <- PaymentIntents.get(id),
          :ok <- validate_confirmable(pi),
+         :ok <- PaperTiger.ReturnUrlHelper.validate(pi, conn.params),
          {:ok, updated, payment_method, mandate_params} <- prepare_confirmation(pi, conn.params) do
       # Transition to succeeded, create charge + balance transaction, then re-fetch to get latest_charge.
 
@@ -211,6 +212,15 @@ defmodule PaperTiger.Resources.PaymentIntent do
     else
       {:error, :not_found} ->
         error_response(conn, PaperTiger.Error.not_found("payment_intent", id))
+
+      {:error, :return_url_required} ->
+        error_response(
+          conn,
+          PaperTiger.Error.invalid_request(
+            PaperTiger.ReturnUrlHelper.error_message("PaymentIntent"),
+            "return_url"
+          )
+        )
 
       {:error, :not_confirmable, status} ->
         error_response(
@@ -446,6 +456,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
       amount_received: 0,
       application: nil,
       application_fee_amount: get_optional_integer(params, :application_fee_amount),
+      automatic_payment_methods: Map.get(params, :automatic_payment_methods),
       canceled_at: nil,
       cancellation_reason: nil,
       capture_method: Map.get(params, :capture_method, "automatic"),
@@ -469,6 +480,7 @@ defmodule PaperTiger.Resources.PaymentIntent do
       payment_method: Map.get(params, :payment_method),
       processing: nil,
       receipt_email: Map.get(params, :receipt_email),
+      return_url: Map.get(params, :return_url),
       review: nil,
       setup_future_usage: Map.get(params, :setup_future_usage),
       shipping: Map.get(params, :shipping),
