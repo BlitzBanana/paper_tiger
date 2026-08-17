@@ -960,7 +960,10 @@ defmodule PaperTiger.Resources.CheckoutSession do
   end
 
   defp build_embedded_price(price_data) do
-    unit_amount = value(price_data, :unit_amount) || 0
+    unit_amount =
+      value(price_data, :unit_amount) ||
+        unit_amount_from_decimal(price_data) ||
+        0
     recurring = value(price_data, :recurring)
 
     %{
@@ -993,15 +996,27 @@ defmodule PaperTiger.Resources.CheckoutSession do
     |> case do
       nil ->
         value(item, :unit_amount) ||
+          unit_amount_from_decimal(item) ||
           value(item, :amount) ||
           (price || value(item, :price)) |> value(:unit_amount) ||
           item |> value(:price_data) |> value(:unit_amount) ||
+          item |> value(:price_data) |> unit_amount_from_decimal() ||
           0
 
       amount ->
         amount
     end
     |> to_integer_value()
+  end
+
+  # Stripe accepts `unit_amount_decimal` (a decimal string in minor units,
+  # e.g. "5250.0") wherever `unit_amount` is accepted. Sub-cent precision is
+  # truncated: the fake bills whole minor units only.
+  defp unit_amount_from_decimal(container) do
+    case value(container, :unit_amount_decimal) do
+      nil -> nil
+      decimal -> to_integer_value(decimal, nil)
+    end
   end
 
   defp line_item_currency(item, price) do
@@ -1113,6 +1128,7 @@ defmodule PaperTiger.Resources.CheckoutSession do
 
   defp to_integer_value(value, default \\ 0)
   defp to_integer_value(value, _default) when is_integer(value), do: value
+  defp to_integer_value(value, _default) when is_float(value), do: trunc(value)
 
   defp to_integer_value(value, default) when is_binary(value) do
     case Integer.parse(value) do

@@ -622,6 +622,43 @@ defmodule PaperTiger.Resources.CheckoutSessionTest do
     end
   end
 
+  describe "price_data.unit_amount_decimal" do
+    test "is honored for session totals, line items, and the completion charge" do
+      session =
+        create_checkout_session(%{
+          "line_items" => [
+            %{
+              "price_data" => %{
+                "currency" => "eur",
+                "product_data" => %{"name" => "Decimal priced"},
+                "unit_amount_decimal" => "5250.0"
+              },
+              "quantity" => 1
+            }
+          ]
+        })
+
+      assert session["amount_total"] == 5250
+
+      complete_conn = request(:post, "/_test/checkout/sessions/#{session["id"]}/complete")
+      assert complete_conn.status == 200
+      completed = json_response(complete_conn)
+
+      pi_conn = request(:get, "/v1/payment_intents/#{completed["payment_intent"]}")
+      assert pi_conn.status == 200
+      pi = json_response(pi_conn)
+      assert pi["amount"] == 5250
+
+      ch_conn = request(:get, "/v1/charges/#{pi["latest_charge"]}")
+      assert ch_conn.status == 200
+      assert json_response(ch_conn)["amount"] == 5250
+
+      line_items_conn = request(:get, "/v1/checkout/sessions/#{session["id"]}/line_items")
+      assert line_items_conn.status == 200
+      assert [%{"amount_total" => 5250}] = json_response(line_items_conn)["data"]
+    end
+  end
+
   defp create_checkout_session(overrides \\ %{}) do
     params =
       Map.merge(
